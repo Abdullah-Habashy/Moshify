@@ -1,3 +1,5 @@
+
+
 :root {
   --color-primary: #2584ff;
   --color-secondary: #00d9ff;
@@ -8,6 +10,11 @@
   --color-border: #ccc;
   --border-radius: 30px;
 }
+
+
+
+
+
 
 *,
 *::after,

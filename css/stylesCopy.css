@@ -1,0 +1,172 @@
+
+/* Color pallete and global variables  */
+
+:root{
+
+  --color-primary : #2584ff;
+  --color-secondary: #00d9ff;
+  --color-accent: #ff3400;
+  --color-headings : #1b0760;
+  --color-body: #918ca4;
+}
+
+*,
+*::after,
+*::before {
+  /* normalize padding and margin */
+  padding: 0;
+  margin: 0;
+
+  /* Adjust calculation to make padding and bordrs inclusive */
+  box-sizing: border-box;
+}
+
+/* Typography */
+::selection {
+
+  /* adjust Text selection styles */
+
+  background: var(--color-primary);
+  color: #fff;
+}
+
+html{
+
+  /* to make each 1 rem = 10 px */
+  font-size: 62.5%;
+
+  /* another way */
+  /* font-size: 10px; */
+}
+
+
+img {
+/* adjust image to container */
+  width: 100%;
+
+/* to fit container without distirtion */
+  object-fit:cover
+
+
+}
+
+
+
+
+body{
+
+  /* insert new font before fallback STD fonts */
+  font-family: inter, Arial, Helvetica, sans-serif;
+  color: var(--color-body);
+  font-size: 2.4rem;
+  line-height:1.5 ;
+}
+
+h1,h2,h3{
+  color: var(--color-headings);
+  margin-bottom: 1rem;
+}
+
+h1{
+  font-size: 7rem;
+}
+
+h2{
+  font-size: 4rem;
+}
+
+h3{
+  font-size:  3rem;
+}
+
+p{
+margin-top: 0;
+}
+
+/* for screens wider than 1024px */
+@media screen and (min-width: 1024px) {
+  body{
+
+    font-size: 1.8rem;
+  }
+
+  h1{
+   font-size: 8rem; 
+  }
+  h2{
+font-size: 4rem;
+  }
+  h3{
+font-size: 2.4rem;
+  }
+  
+}
+
+
+/* Links */
+a {
+
+  /* remove line below links */
+  text-decoration: none;
+}
+
+.link--arrow{
+  text-transform: uppercase;
+  color: var(--color-accent);
+  font-weight: bold;
+  transition: all 2.0s;
+}
+
+
+.link--arrow::after{
+  content: "-->";
+  margin: 3px;
+  transition: all 0.2s;
+}
+
+.link--container:hover{
+  background-color: #2c2158;
+  border-radius: 5px;
+  
+}
+.link--arrow:hover{
+  color: #fff;
+  
+}
+.link--arrow:hover::after{
+  margin: 6px;
+  color: #fff;
+  
+}
+
+
+
+
+
+/* Lists */
+.list {
+  list-style: none;
+}
+
+
+/* Icons */
+.icon {
+  width: 40px;
+  height: 40px;
+}
+
+.icon--small {
+  width: 30px;
+  height: 30px;
+}
+
+
+
+@media screen and (min-width: 769px) {
+  
+ /*write new styles here*/
+}
+
+
+
+
