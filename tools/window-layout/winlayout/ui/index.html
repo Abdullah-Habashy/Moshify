@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>توزيع النوافذ</title>
+<link rel="icon" href="/static/icon.svg?t={{TOKEN}}" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css?t={{TOKEN}}">
+</head>
+<body data-token="{{TOKEN}}">
+
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="9" height="18" rx="2"/><rect x="13" y="3" width="9" height="8" rx="2"/><rect x="13" y="13" width="9" height="8" rx="2"/></svg>
+    <div>
+      <h1>توزيع النوافذ</h1>
+      <p class="muted">احفظ شكل الشاشة دلوقتي، ورجّعه بضغطة واحدة</p>
+    </div>
+  </div>
+  <button id="btn-capture" class="primary">＋ احفظ التوزيع الحالي</button>
+</header>
+
+<main>
+  <div id="banner" class="banner hidden"></div>
+  <section id="layouts" class="grid"></section>
+  <p id="empty" class="empty hidden">
+    مافيش توزيعات لسه.<br>
+    رتّب نوافذك على الشاشة زي ما تحب، وبعدين دوس <b>احفظ التوزيع الحالي</b>.
+  </p>
+</main>
+
+<footer class="foot">
+  <span class="muted">الملفات المحفوظة: <code id="home"></code></span>
+  <span class="muted">إصدار {{VERSION}}</span>
+</footer>
+
+<!-- حفظ توزيع جديد -->
+<dialog id="capture-dialog">
+  <form method="dialog" id="capture-form">
+    <h2 id="capture-title">احفظ التوزيع الحالي</h2>
+    <label class="field">
+      <span>اسم التوزيع</span>
+      <input id="capture-name" type="text" maxlength="60" required placeholder="مثلاً: شغل الصبح">
+    </label>
+    <div class="rowline">
+      <p class="muted" id="capture-count">بنقرا النوافذ المفتوحة…</p>
+      <span class="spacer"></span>
+      <button type="button" class="link" data-select="all">اختار الكل</button>
+      <button type="button" class="link" data-select="none">امسح الاختيار</button>
+    </div>
+    <div id="capture-list" class="winlist"></div>
+    <label class="check inline">
+      <input type="checkbox" id="capture-launch" checked>
+      <span>لو البرنامج مقفول وقت الاسترجاع، افتحه</span>
+    </label>
+    <div class="actions">
+      <button type="button" class="ghost" data-close>إلغاء</button>
+      <button type="button" class="primary" id="capture-save">احفظ</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- تقرير الاسترجاع -->
+<dialog id="restore-dialog">
+  <div>
+    <h2 id="restore-title">بنرجّع التوزيع…</h2>
+    <div id="restore-log" class="log"></div>
+    <div id="restore-results" class="results"></div>
+    <div class="actions">
+      <button type="button" class="primary" data-close id="restore-close">تمام</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="/static/app.js?t={{TOKEN}}"></script>
+</body>
+</html>
