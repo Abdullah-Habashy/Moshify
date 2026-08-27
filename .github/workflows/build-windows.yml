@@ -33,6 +33,15 @@ jobs:
       - name: Windows backend, on a real desktop
         run: python -m unittest tests.test_win_smoke -v
 
+      # A windowed app logs instead of printing, so surface it here or a
+      # failure on the runner is as invisible as one on a user's machine.
+      - name: App log from the tests
+        if: always()
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:APPDATA 'WindowLayout\log.txt'
+          if (Test-Path $log) { Get-Content $log } else { Write-Host "(مافيش سجل)" }
+
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
 

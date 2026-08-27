@@ -16,6 +16,8 @@ from typing import NamedTuple, Optional
 from . import diag
 from .model import slugify
 
+CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
 
 class Command(NamedTuple):
     target: str
@@ -182,18 +184,29 @@ def create_shortcut(layout_name: str, directory: Optional[Path] = None) -> Path:
         icon=_ps_quote(command.icon),
         desc=_ps_quote(f"WindowLayout — {layout_name}"),
     )
-    try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive",
-             "-ExecutionPolicy", "Bypass", "-Command", script],
-            capture_output=True, text=True, timeout=30,
-            encoding="utf-8", errors="replace",
-        )
+    # Windows PowerShell ships with Windows; pwsh is there on developer
+    # machines and build agents. Either can write the shell link.
+    for shell in ("powershell.exe", "pwsh.exe"):
+        try:
+            result = subprocess.run(
+                [shell, "-NoProfile", "-NonInteractive",
+                 "-ExecutionPolicy", "Bypass", "-Command", script],
+                capture_output=True, text=True, timeout=60,
+                encoding="utf-8", errors="replace",
+                creationflags=CREATE_NO_WINDOW,
+            )
+        except FileNotFoundError:
+            diag.log(f"{shell} is not on PATH")
+            continue
+        except (OSError, subprocess.SubprocessError) as exc:
+            diag.log(f"{shell} failed: {exc!r}")
+            continue
         if result.returncode == 0 and target.exists():
             return target
-        diag.log(f"powershell could not write the .lnk: {result.stderr.strip()[:300]}")
-    except (OSError, subprocess.SubprocessError):
-        diag.log_exception("powershell failed while writing the shortcut")
+        diag.log(f"{shell} exit={result.returncode} "
+                 f"exists={target.exists()} "
+                 f"stderr={(result.stderr or '').strip()[:400]!r} "
+                 f"stdout={(result.stdout or '').strip()[:200]!r}")
     return _create_cmd(layout_name, directory, command)
 
 
