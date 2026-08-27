@@ -93,3 +93,41 @@ class TestShortcutCommand(unittest.TestCase):
         self.assertEqual(cmd.target, r"C:\py\pythonw.exe")
         self.assertIn("WindowLayout.pyw", cmd.arguments)
         self.assertTrue(cmd.arguments.endswith('restore "شغل"'))
+
+
+class TestConsoleOutput(unittest.TestCase):
+    """A Windows console defaults to a legacy code page that has no Arabic."""
+
+    def _capture(self, encoding):
+        import io
+        import sys
+        from winlayout.cli import _print
+        buffer = io.BytesIO()
+        stream = io.TextIOWrapper(buffer, encoding=encoding, errors="strict",
+                                  newline="\n")
+        original = sys.stdout
+        sys.stdout = stream
+        try:
+            _print("مافيش توزيعات محفوظة")
+            stream.flush()
+        finally:
+            sys.stdout = original
+        return buffer.getvalue()
+
+    def test_utf8_console_prints_arabic(self):
+        self.assertIn("مافيش".encode("utf-8"), self._capture("utf-8"))
+
+    def test_legacy_console_degrades_instead_of_crashing(self):
+        written = self._capture("cp1252")
+        self.assertTrue(written.strip(), "مطبعش أي حاجة")
+        self.assertNotIn(b"\xef\xbf\xbd", written)
+
+    def test_no_stdout_is_not_a_crash(self):
+        import sys
+        from winlayout.cli import _print
+        original = sys.stdout
+        sys.stdout = None
+        try:
+            _print("أي كلام")
+        finally:
+            sys.stdout = original

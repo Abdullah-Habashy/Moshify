@@ -13,10 +13,21 @@ from .store import LayoutStore
 STATE_LABEL = {"normal": "عادية", "maximized": "مكبّرة", "minimized": "مصغّرة"}
 
 def _print(text: str = "") -> None:
+    """Print, degrading to '?' on a console that cannot hold Arabic.
+
+    Round-tripping through the stream's *own* encoding is the part that
+    matters: replacing into UTF-8 and decoding as ASCII produces U+FFFD,
+    which a cp1252 console cannot encode either, so the fallback itself
+    would raise.
+    """
+    stream = sys.stdout
+    if stream is None:  # windowed .exe with nowhere to write
+        return
     try:
         print(text)
-    except UnicodeEncodeError:  # pragma: no cover - legacy consoles
-        print(text.encode("utf-8", "replace").decode("ascii", "replace"))
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "ascii"
+        print(text.encode(encoding, "replace").decode(encoding, "replace"))
 
 
 def cmd_list(args, store: LayoutStore, engine: Engine) -> int:

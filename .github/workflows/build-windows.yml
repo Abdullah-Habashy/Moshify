@@ -25,10 +25,13 @@ jobs:
         with:
           python-version: '3.12'
 
-      # This is the only place the ctypes layer runs for real: monitor
-      # enumeration, window enumeration, and moving an actual window.
-      - name: Tests (including the real Windows backend)
+      - name: Tests
         run: python -m unittest discover -s tests -v
+
+      # The only place the ctypes layer runs for real: monitor enumeration,
+      # the coordinate conversion, and moving an actual window around.
+      - name: Windows backend, on a real desktop
+        run: python -m unittest tests.test_win_smoke -v
 
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
