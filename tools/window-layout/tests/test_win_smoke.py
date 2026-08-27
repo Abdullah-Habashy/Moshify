@@ -175,12 +175,16 @@ class TestShortcutsOnWindows(unittest.TestCase):
             path = create_shortcut("شغل الصبح", Path(tmp))
             self.assertTrue(path.exists(), "الاختصار مااتكتبش")
             if path.suffix == ".cmd":
+                import shutil
                 from winlayout.diag import log_path
                 reason = ""
                 if log_path().exists():
                     reason = "\n".join(log_path().read_text(
                         encoding="utf-8", errors="replace").splitlines()[-6:])
-                self.skipTest(f"مانفعش نكتب .lnk — آخر السجل:\n{reason}")
+                if not (shutil.which("powershell.exe") or shutil.which("pwsh.exe")):
+                    self.skipTest("مافيش PowerShell على الجهاز")
+                self.fail("PowerShell موجود ومع ذلك مااتكتبش .lnk — "
+                          f"آخر السجل:\n{reason}")
             self.assertEqual(path.name, "شغل الصبح.lnk")
             raw = path.read_bytes()
         # A .lnk starts with its 76-byte header and the shell link CLSID.

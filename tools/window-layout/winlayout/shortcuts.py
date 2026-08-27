@@ -6,6 +6,7 @@ exe itself; from source it is ``pythonw.exe winlayout-cli.py``.
 """
 from __future__ import annotations
 
+import base64
 import os
 import re
 import subprocess
@@ -159,16 +160,8 @@ def _ps_quote(value) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def create_shortcut(layout_name: str, directory: Optional[Path] = None) -> Path:
-    """Write ``<layout>.lnk`` on the desktop. Falls back to a .cmd file when
-    PowerShell is unavailable."""
-    directory = Path(directory) if directory else desktop_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{safe_filename(layout_name)}.lnk"
-    command = shortcut_command(layout_name)
-    diag.log(f"shortcut -> {target}")
-
-    script = (
+def build_script(target: Path, command: Command, layout_name: str) -> str:
+    return (
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut({path});"
         "$s.TargetPath = {exe};"
         "$s.Arguments = {args};"
@@ -184,13 +177,36 @@ def create_shortcut(layout_name: str, directory: Optional[Path] = None) -> Path:
         icon=_ps_quote(command.icon),
         desc=_ps_quote(f"WindowLayout — {layout_name}"),
     )
+
+
+def encode_script(script: str) -> str:
+    """What -EncodedCommand wants: base64 of UTF-16LE."""
+    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+
+
+def create_shortcut(layout_name: str, directory: Optional[Path] = None) -> Path:
+    """Write ``<layout>.lnk`` on the desktop. Falls back to a .cmd file when
+    PowerShell is unavailable."""
+    directory = Path(directory) if directory else desktop_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / f"{safe_filename(layout_name)}.lnk"
+    command = shortcut_command(layout_name)
+    diag.log(f"shortcut -> {target}")
+
+    script = build_script(target, command, layout_name)
+    # -EncodedCommand, not -Command: PowerShell re-encodes a command line
+    # through the console code page, which turns every Arabic letter into
+    # '?' -- and '?' is illegal in a filename, so the save fails. Base64 of
+    # UTF-16LE is pure ASCII on the command line and arrives intact.
+    encoded = encode_script(script)
+
     # Windows PowerShell ships with Windows; pwsh is there on developer
     # machines and build agents. Either can write the shell link.
     for shell in ("powershell.exe", "pwsh.exe"):
         try:
             result = subprocess.run(
                 [shell, "-NoProfile", "-NonInteractive",
-                 "-ExecutionPolicy", "Bypass", "-Command", script],
+                 "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
                 capture_output=True, text=True, timeout=60,
                 encoding="utf-8", errors="replace",
                 creationflags=CREATE_NO_WINDOW,

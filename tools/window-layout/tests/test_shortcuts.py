@@ -1,4 +1,5 @@
 """Where a desktop shortcut lands, and what it is called."""
+import base64
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,6 +67,39 @@ class TestNaming(unittest.TestCase):
 
     def test_a_name_of_only_symbols_still_produces_something(self):
         self.assertTrue(safe_filename("///"))
+
+
+class TestPowerShellEncoding(unittest.TestCase):
+    """PowerShell re-encodes a plain -Command line through the console code
+    page, which turns Arabic into '?' -- and '?' cannot be in a filename, so
+    the shortcut silently failed to save."""
+
+    def test_the_script_survives_the_round_trip(self):
+        from winlayout.shortcuts import build_script, encode_script
+        command = Command(r"C:\a\WindowLayout.exe", 'restore "شغل الصبح"',
+                          r"C:\a\icon.ico", r"C:\a")
+        script = build_script(Path(r"C:\Users\me\Desktop\شغل الصبح.lnk"),
+                              command, "شغل الصبح")
+        decoded = base64.b64decode(encode_script(script)).decode("utf-16-le")
+        self.assertEqual(decoded, script)
+        self.assertIn("شغل الصبح", decoded)
+
+    def test_the_encoded_form_is_pure_ascii(self):
+        from winlayout.shortcuts import encode_script
+        encoded = encode_script("$s.Description = 'شغل الصبح'")
+        encoded.encode("ascii")  # raises if anything non-ascii slipped through
+
+    def test_single_quotes_in_a_name_cannot_break_out(self):
+        """A PowerShell single-quoted string escapes ' by doubling it, so the
+        check is that the value parses back to itself and leaves no unpaired
+        quote to close the string early."""
+        from winlayout.shortcuts import _ps_quote
+        evil = "it's mine';$evil=1;'"
+        quoted = _ps_quote(evil)
+        self.assertTrue(quoted.startswith("'") and quoted.endswith("'"))
+        body = quoted[1:-1]
+        self.assertEqual(body.replace("''", "'"), evil)
+        self.assertNotIn("'", body.replace("''", ""))
 
 
 class TestCmdFallback(unittest.TestCase):
