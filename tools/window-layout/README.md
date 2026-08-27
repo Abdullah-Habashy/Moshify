@@ -6,25 +6,36 @@
 
 ---
 
-## المتطلبات
+## التشغيل — الطريقة السهلة (بدون تسطيب)
 
-- ويندوز 10 أو 11
-- بايثون 3.9 أو أحدث — من [python.org](https://www.python.org/downloads/windows/)،
-  وافتكر تعلّم **Add python.exe to PATH** وقت التسطيب.
+نزّل **`WindowLayout.exe`** من صفحة
+[Releases](../../releases) ودوس عليه دبل كليك. خلاص.
+
+- مش محتاج بايثون ولا أي مكتبة.
+- ملف واحد، تقدر تحطه في أي مكان أو تعمله Pin على شريط المهام.
+- أول مرة ويندوز ممكن يقول *"Windows protected your PC"* لأن الملف مش موقّع
+  رقميًا — دوس **More info** ← **Run anyway**.
+
+## التشغيل من الكود المصدري
+
+محتاج بايثون 3.9 أو أحدث من [python.org](https://www.python.org/downloads/windows/)
+(علّم **Add python.exe to PATH**). بعدين دبل كليك على **`WindowLayout.pyw`**،
+أو **`WindowLayout.cmd`** لو الـ `.pyw` مش مربوط ببايثون.
 
 **مافيش أي مكتبة محتاجة `pip install`.** البرنامج بيكلّم ويندوز مباشرة عن طريق
 `ctypes` اللي جوه بايثون نفسه.
 
----
+### الواجهة
 
-## التشغيل
+بتفتح في **نافذة ديسكتوب عادية** — من غير تبويبات ولا شريط عناوين. تحت الغطا
+دي نافذة Chromium بوضع `--app` (Edge الموجود أصلاً على كل ويندوز 10/11)، لأن:
 
-دوس دبل كليك على **`WindowLayout.pyw`** (أو `WindowLayout.cmd` لو الـ `.pyw`
-مش مربوط ببايثون). الواجهة هتفتح في المتصفح على `127.0.0.1`.
+- Tk مش بيوصّل الحروف العربية صح على ويندوز، فالأسماء بتطلع مقطّعة.
+- محرّك المتصفح بيعرض العربي RTL مظبوط، وبيسمح برسم خريطة التوزيع.
 
-> الواجهة صفحة ويب محلية مش نافذة tkinter، لأن tkinter مش بيوصّل الحروف العربية
-> صح على ويندوز. الصفحة شغالة على جهازك بس، والسيرفر بيرفض أي طلب من غير التوكن
-> اللي بيتولد مع كل تشغيل.
+لو مالقاش أي متصفح Chromium، بيفتح في المتصفح الافتراضي بدل ما يفشل. في كل
+الحالات السيرفر شغال على `127.0.0.1` بس وبيرفض أي طلب من غير التوكن اللي
+بيتولّد مع كل تشغيل.
 
 ### الاستخدام في تلات خطوات
 
@@ -43,7 +54,10 @@
 
 ## سطر الأوامر
 
+نفس الملف بيشتغل من سطر الأوامر لو مرّرتله أوامر:
+
 ```cmd
+WindowLayout.exe list               :: أو winlayout.cmd لو شغال من الكود المصدري
 winlayout list                      :: التوزيعات المحفوظة
 winlayout save "شغل الصبح"           :: احفظ الوضع الحالي
 winlayout save "شغل" --only chrome code   :: احفظ نوافذ برامج معيّنة بس
@@ -112,10 +126,17 @@ winlayout ui                         :: افتح الواجهة
 ## للمطوّر
 
 ```bash
-python -m unittest discover -s tests                        # الاختبارات
-WINLAYOUT_FAKE=1 python winlayout-cli.py list               # سطح مكتب وهمي
-WINLAYOUT_HOME=/path/to/dir python winlayout-cli.py list    # مجلد تخزين بديل
+python -m unittest discover -s tests                     # الاختبارات
+WINLAYOUT_FAKE=1 python WindowLayout.py list             # سطح مكتب وهمي
+WINLAYOUT_HOME=/path/to/dir python WindowLayout.py list  # مجلد تخزين بديل
+build\build-exe.cmd                                      # بناء الـ exe محليًا
 ```
+
+اختبارات `tests/test_win_smoke.py` هي الوحيدة اللي بتشغّل طبقة `ctypes` على
+ويندوز حقيقي (بتعدّ الشاشات، وبتعمل نافذة Tk وتحرّكها وتكبّرها وتصغّرها وتتأكد
+إنها راحت مكانها). بتتخطّى نفسها على أي نظام تاني، وبتتنفّذ في
+`.github/workflows/build-windows.yml` مع كل push — ونفس الـ workflow ده هو اللي
+بيبني الـ exe وينشره في Releases.
 
 `WINLAYOUT_FAKE=1` بيبدّل طبقة ويندوز بسطح مكتب في الذاكرة، فتقدر تشغّل الواجهة
 والاختبارات على لينكس أو ماك من غير ويندوز.
@@ -131,11 +152,19 @@ winlayout/
   store.py            القراءة والكتابة في %APPDATA%
   shortcuts.py        اختصارات الديسكتوب (.lnk عن طريق WScript.Shell)
   arabic.py           صيغة العدد مع المعدود (نافذة / نافذتين / نوافذ)
+  app.py              نقطة الدخول: نافذة لو من غير أوامر، CLI لو معاه أوامر
   cli.py              سطر الأوامر
   backend/
     win_backend.py    ويندوز عن طريق ctypes (user32 / kernel32 / dwmapi / shcore)
     fake_backend.py   سطح مكتب وهمي للاختبارات
-  ui/                 السيرفر المحلي + الصفحة
+  ui/
+    server.py         السيرفر المحلي (توكن لكل تشغيل، مهام في الخلفية)
+    desktop.py        فتح الواجهة كنافذة ديسكتوب
+    index.html/app.js/style.css/icon.ico
+build/
+  WindowLayout.spec   وصفة PyInstaller
+  make_icon.py        توليد الأيقونة من كود (من غير أي مكتبة صور)
+  build-exe.cmd       بناء محلي
 ```
 
 الملفات اللي مالهاش علاقة بويندوز (`model` / `geometry` / `matching` / `store`)

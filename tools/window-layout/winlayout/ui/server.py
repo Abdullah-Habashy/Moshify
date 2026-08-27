@@ -11,6 +11,7 @@ import json
 import mimetypes
 import os
 import secrets
+import sys
 import threading
 import time
 import uuid
@@ -25,7 +26,14 @@ from ..engine import Engine, layout_bounds
 from ..model import Layout
 from ..store import LayoutStore, home_dir
 
-STATIC_DIR = Path(__file__).resolve().parent
+def _static_dir() -> Path:
+    """Where index.html and friends live -- inside the PyInstaller bundle when
+    the app is frozen, next to this file otherwise."""
+    bundle = getattr(sys, "_MEIPASS", None)
+    return Path(bundle) / "winlayout" / "ui" if bundle else Path(__file__).resolve().parent
+
+
+STATIC_DIR = _static_dir()
 IDLE_TIMEOUT = 15 * 60  # shut down after the browser tab has been gone a while
 
 
@@ -331,21 +339,25 @@ def create_server(port: int = 0, state: Optional[UIState] = None):
     return server, state, url
 
 
-def serve(open_browser: bool = True, port: int = 0) -> None:
-    running = _existing_instance()
-    if running:
-        if open_browser:
-            webbrowser.open(running)
-        print(f"البرنامج شغال بالفعل: {running}")
-        return
-
-    server, state, url = create_server(port)
-    actual_port = server.server_address[1]
-
+def claim_instance(server, state: UIState) -> None:
+    """Record the port and token so a second launch reuses this one."""
     home_dir().mkdir(parents=True, exist_ok=True)
     _instance_file().write_text(
-        json.dumps({"port": actual_port, "token": state.token, "pid": os.getpid()}),
+        json.dumps({"port": server.server_address[1], "token": state.token,
+                    "pid": os.getpid()}),
         encoding="utf-8")
+
+
+def release_instance(server) -> None:
+    server.server_close()
+    try:
+        _instance_file().unlink()
+    except OSError:
+        pass
+
+
+def start_idle_watchdog(server, state: UIState) -> None:
+    """Stop serving once nobody is looking at the page any more."""
 
     def watchdog() -> None:
         while True:
@@ -357,6 +369,19 @@ def serve(open_browser: bool = True, port: int = 0) -> None:
                 return
 
     threading.Thread(target=watchdog, daemon=True, name="idle-watchdog").start()
+
+
+def serve(open_browser: bool = True, port: int = 0) -> None:
+    running = _existing_instance()
+    if running:
+        if open_browser:
+            webbrowser.open(running)
+        print(f"البرنامج شغال بالفعل: {running}")
+        return
+
+    server, state, url = create_server(port)
+    claim_instance(server, state)
+    start_idle_watchdog(server, state)
     print(f"WindowLayout شغال على {url}")
     if open_browser:
         webbrowser.open(url)
@@ -365,8 +390,4 @@ def serve(open_browser: bool = True, port: int = 0) -> None:
     except KeyboardInterrupt:  # pragma: no cover
         pass
     finally:
-        server.server_close()
-        try:
-            _instance_file().unlink()
-        except OSError:
-            pass
+        release_instance(server)

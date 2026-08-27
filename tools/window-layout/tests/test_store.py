@@ -75,3 +75,21 @@ class TestArabicCounting(unittest.TestCase):
         self.assertEqual(arabic.windows(3), "3 نوافذ")
         self.assertEqual(arabic.windows(11), "11 نافذة")
         self.assertEqual(arabic.monitors(2), "شاشتين")
+
+
+class TestShortcutCommand(unittest.TestCase):
+    def test_frozen_app_points_at_itself(self):
+        from winlayout.shortcuts import shortcut_command
+        cmd = shortcut_command("شغل", frozen=True, executable=r"C:\a\WindowLayout.exe",
+                               root=Path(r"C:\a"))
+        self.assertEqual(cmd.target, r"C:\a\WindowLayout.exe")
+        self.assertEqual(cmd.arguments, 'restore "شغل"')
+        self.assertEqual(cmd.icon, r"C:\a\WindowLayout.exe,0")
+
+    def test_source_checkout_runs_the_cli_script(self):
+        from winlayout.shortcuts import shortcut_command
+        cmd = shortcut_command("شغل", frozen=False, executable=r"C:\py\pythonw.exe",
+                               root=Path(r"C:\tool"))
+        self.assertEqual(cmd.target, r"C:\py\pythonw.exe")
+        self.assertIn("WindowLayout.pyw", cmd.arguments)
+        self.assertTrue(cmd.arguments.endswith('restore "شغل"'))
