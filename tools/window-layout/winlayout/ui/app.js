@@ -280,4 +280,10 @@ function showReport(report) {
 
 // ---------- تشغيل ----------
 load().catch(err => banner(err.message, "error"));
-setInterval(() => api("ping").catch(() => {}), 60000);
+
+// نبضة تقول للسيرفر إن الصفحة لسه مفتوحة، ووداع لما تتقفل عشان يقفل بسرعة
+// بدل ما يفضل شغال. الريلود بيبعت وداع كمان، فالسيرفر بيتراجع عنه مع أول طلب بعده.
+setInterval(() => api("ping").catch(() => {}), 15000);
+addEventListener("pagehide", () => {
+  try { navigator.sendBeacon(`/api/bye?t=${encodeURIComponent(TOKEN)}`); } catch (_) {}
+});

@@ -86,6 +86,7 @@ class UIState:
         self.store = LayoutStore()
         self.jobs = Jobs()
         self.last_seen = time.time()
+        self.goodbye: Optional[float] = None
         self._engine: Optional[Engine] = None
         self._engine_error: Optional[str] = None
 
@@ -138,6 +139,12 @@ class Handler(BaseHTTPRequestHandler):
         token = self.headers.get("X-Token") or (query.get("t") or [""])[0]
         return secrets.compare_digest(token, self.state.token)
 
+    def _touch(self) -> None:
+        """Any request means somebody is still looking -- including the one
+        right after a reload, which is what makes a goodbye retractable."""
+        self.state.last_seen = time.time()
+        self.state.goodbye = None
+
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -178,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
             html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
             html = html.replace("{{TOKEN}}", self.state.token)
             html = html.replace("{{VERSION}}", __version__)
-            self.state.last_seen = time.time()
+            self._touch()
             return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
 
         if path.startswith("/static/"):
@@ -195,7 +202,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._error("مش موجود", 404)
         if not self._authorized(query):
             return self._error("توكن غلط", 403)
-        self.state.last_seen = time.time()
+        self._touch()
 
         if path == "/api/ping":
             return self._json({"ok": True, "version": __version__})
@@ -234,10 +241,16 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         if not self._authorized(query):
             return self._error("توكن غلط", 403)
-        self.state.last_seen = time.time()
+        self._touch()
         body = self._body()
         path = parsed.path
         store = self.state.store
+
+        if path == "/api/bye":
+            # sendBeacon on pagehide. A reload fires it too, so this only
+            # arms the shutdown -- the reload's next request disarms it.
+            self.state.goodbye = time.time()
+            return self._json({"ok": True})
 
         if path == "/api/capture":
             name = (body.get("name") or "").strip()

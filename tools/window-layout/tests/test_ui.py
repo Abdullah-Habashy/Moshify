@@ -101,6 +101,12 @@ class TestApi(unittest.TestCase):
         self.assertEqual(renamed["layout"]["name"], "شغل الصبح")
         self.assertTrue(self.call("delete", {"name": "شغل الصبح"})["ok"])
 
+    def test_goodbye_arms_shutdown_and_the_next_request_disarms_it(self):
+        self.assertTrue(self.call("bye", {})["ok"])
+        self.assertIsNotNone(self.state.goodbye)
+        self.call("ping")
+        self.assertIsNone(self.state.goodbye)
+
     def test_restoring_an_unknown_layout_is_a_clean_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.call("restore", {"name": "مش موجود"})
