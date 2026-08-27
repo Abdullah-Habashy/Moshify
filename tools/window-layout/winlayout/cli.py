@@ -12,6 +12,29 @@ from .store import LayoutStore
 
 STATE_LABEL = {"normal": "عادية", "maximized": "مكبّرة", "minimized": "مصغّرة"}
 
+
+def prepare_console() -> None:
+    """Make Arabic output survive whatever console we were started from.
+
+    Three situations: started from an open CMD (a windowed .exe has to borrow
+    that console), started with output piped somewhere (a stream exists, but
+    with the legacy code page), or double-clicked (no stream at all, and print
+    quietly no-ops). Only the first needs AttachConsole; all need UTF-8.
+    """
+    if sys.platform == "win32" and sys.stdout is None and getattr(sys, "frozen", False):
+        try:
+            import ctypes
+            if ctypes.windll.kernel32.AttachConsole(-1):  # ATTACH_PARENT_PROCESS
+                sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+                sys.stderr = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+        except Exception:
+            pass
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass  # None, or a stream that cannot be reconfigured
+
 def _print(text: str = "") -> None:
     """Print, degrading to '?' on a console that cannot hold Arabic.
 
@@ -168,6 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    prepare_console()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):

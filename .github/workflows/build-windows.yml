@@ -44,9 +44,15 @@ jobs:
         run: |
           # The windowed exe returns to the shell immediately and never sets an
           # exit code, so the console build is the one a script can check.
+          $out = Join-Path $env:RUNNER_TEMP 'cli-out.txt'
           $cli = Start-Process -FilePath .\dist\winlayout-cli.exe -ArgumentList 'list' `
-            -Wait -PassThru -NoNewWindow
+            -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out
           if ($cli.ExitCode -ne 0) { throw "winlayout-cli.exe list exited $($cli.ExitCode)" }
+          # Redirected output is where Arabic silently degrades to '?', so
+          # check the real characters survived rather than just the exit code.
+          $text = Get-Content $out -Raw -Encoding utf8
+          Write-Host $text
+          if ($text -notmatch 'مافيش') { throw "Arabic output was mangled" }
           $app = Start-Process -FilePath .\dist\WindowLayout.exe -ArgumentList 'list' `
             -Wait -PassThru
           if ($app.ExitCode -ne 0) { throw "WindowLayout.exe list exited $($app.ExitCode)" }

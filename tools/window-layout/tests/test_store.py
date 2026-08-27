@@ -131,3 +131,28 @@ class TestConsoleOutput(unittest.TestCase):
             _print("أي كلام")
         finally:
             sys.stdout = original
+
+    def test_main_puts_the_console_into_utf8(self):
+        """A piped stream defaults to the legacy code page; the CLI has to
+        switch it or every Arabic message degrades to '?'."""
+        import io
+        import os
+        import sys
+        import tempfile
+        from winlayout import cli
+        buffer = io.BytesIO()
+        stream = io.TextIOWrapper(buffer, encoding="cp1252", errors="strict")
+        original, env = sys.stdout, dict(os.environ)
+        sys.stdout = stream
+        os.environ["WINLAYOUT_FAKE"] = "1"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                os.environ["WINLAYOUT_HOME"] = tmp
+                cli.main(["list"])
+            stream.flush()
+        finally:
+            sys.stdout = original
+            os.environ.clear()
+            os.environ.update(env)
+        self.assertEqual(stream.encoding, "utf-8")
+        self.assertIn("مافيش".encode("utf-8"), buffer.getvalue())
