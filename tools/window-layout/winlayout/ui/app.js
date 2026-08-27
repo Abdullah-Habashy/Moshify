@@ -92,8 +92,11 @@ function card(layout) {
   shortcut.onclick = async () => {
     shortcut.disabled = true;
     try {
-      const { path } = await api("shortcut", { method: "POST", body: { name: layout.name } });
-      banner(`الاختصار اتعمل: ${path}`, "ok");
+      const { path, folder, kind } = await api("shortcut",
+        { method: "POST", body: { name: layout.name } });
+      const note = kind === "cmd" ? " (كملف .cmd — PowerShell مش متاح)" : "";
+      banner(`الاختصار اتعمل${note} وفتحنالك مكانه: ${folder}`, "ok");
+      console.log("shortcut:", path);
     } catch (err) { banner(err.message, "error"); }
     shortcut.disabled = false;
   };

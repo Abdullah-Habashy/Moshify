@@ -310,11 +310,16 @@ class Handler(BaseHTTPRequestHandler):
             if not store.exists(name):
                 return self._error("التوزيع مش موجود", 404)
             try:
-                from ..shortcuts import create_shortcut
+                from ..shortcuts import create_shortcut, reveal
                 path_created = create_shortcut(name)
+                # Open Explorer on it: "I made a shortcut and can't find it"
+                # is the whole failure mode this feature has.
+                reveal(path_created)
             except Exception as exc:
                 return self._error(f"مانفعش نعمل الاختصار: {exc}", 500)
-            return self._json({"path": str(path_created)})
+            return self._json({"path": str(path_created),
+                               "folder": str(path_created.parent),
+                               "kind": path_created.suffix.lstrip(".")})
 
         return self._error("مش موجود", 404)
 

@@ -138,7 +138,8 @@ def cmd_shortcut(args, store: LayoutStore, engine: Engine) -> int:
         _print(f"مافيش توزيع اسمه «{args.name}».")
         return 1
     path = create_shortcut(args.name)
-    _print(f"الاختصار اتعمل: {path}")
+    _print("الاختصار اتعمل في:")
+    _print(f"   {path}")
     return 0
 
 

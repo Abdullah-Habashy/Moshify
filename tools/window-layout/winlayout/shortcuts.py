@@ -7,11 +7,13 @@ exe itself; from source it is ``pythonw.exe winlayout-cli.py``.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+from . import diag
 from .model import slugify
 
 
@@ -39,13 +41,91 @@ def package_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def desktop_dir() -> Path:
-    profile = os.environ.get("USERPROFILE") or str(Path.home())
-    for name in ("Desktop", "سطح المكتب", "OneDrive/Desktop"):
-        candidate = Path(profile) / name
+# {B4BFCC3A-DB2C-424C-B029-7FE99A87C641}
+FOLDERID_DESKTOP = "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"
+
+
+def desktop_from_known_folder() -> Optional[Path]:
+    """Ask Windows where the desktop actually is.
+
+    Guessing %USERPROFILE%\\Desktop is wrong the moment OneDrive backs the
+    desktop up: the old folder can still exist, empty, while everything the
+    user sees lives under OneDrive. Only the shell knows.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class GUID(ctypes.Structure):
+            _fields_ = [("Data1", ctypes.c_ulong), ("Data2", ctypes.c_ushort),
+                        ("Data3", ctypes.c_ushort), ("Data4", ctypes.c_ubyte * 8)]
+
+        shell32 = ctypes.WinDLL("shell32")
+        ole32 = ctypes.WinDLL("ole32")
+        guid = GUID()
+        if ole32.CLSIDFromString(FOLDERID_DESKTOP, ctypes.byref(guid)) != 0:
+            return None
+        pointer = ctypes.c_wchar_p()
+        shell32.SHGetKnownFolderPath.argtypes = [
+            ctypes.POINTER(GUID), wintypes.DWORD, wintypes.HANDLE,
+            ctypes.POINTER(ctypes.c_wchar_p)]
+        if shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None,
+                                        ctypes.byref(pointer)) != 0:
+            return None
+        try:
+            path = Path(pointer.value) if pointer.value else None
+        finally:
+            ole32.CoTaskMemFree(pointer)
+        return path if path and path.is_dir() else None
+    except Exception:
+        return None
+
+
+def desktop_from_registry() -> Optional[Path]:
+    """User Shell Folders holds the same redirection, without any COM."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+        with key:
+            value, _kind = winreg.QueryValueEx(key, "Desktop")
+        path = Path(os.path.expandvars(value))
+        return path if path.is_dir() else None
+    except Exception:
+        return None
+
+
+def desktop_by_guessing(profile: Optional[str] = None) -> Path:
+    """Last resort. OneDrive first: when it is there, it is the real one."""
+    base = Path(profile or os.environ.get("USERPROFILE") or Path.home())
+    for name in ("OneDrive/Desktop", "OneDrive - Personal/Desktop",
+                 "Desktop", "سطح المكتب"):
+        candidate = base / name
         if candidate.is_dir():
             return candidate
-    return Path(profile)
+    return base
+
+
+def desktop_dir() -> Path:
+    for finder in (desktop_from_known_folder, desktop_from_registry):
+        found = finder()
+        if found is not None:
+            return found
+    return desktop_by_guessing()
+
+
+ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def safe_filename(name: str) -> str:
+    """Keep the layout's name readable on the desktop -- spaces and all."""
+    cleaned = ILLEGAL.sub("", name).strip().rstrip(".")
+    return cleaned[:80] or slugify(name)
 
 
 def _fallback_icon() -> str:
@@ -82,8 +162,9 @@ def create_shortcut(layout_name: str, directory: Optional[Path] = None) -> Path:
     PowerShell is unavailable."""
     directory = Path(directory) if directory else desktop_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{slugify(layout_name)}.lnk"
+    target = directory / f"{safe_filename(layout_name)}.lnk"
     command = shortcut_command(layout_name)
+    diag.log(f"shortcut -> {target}")
 
     script = (
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut({path});"
@@ -110,16 +191,37 @@ def create_shortcut(layout_name: str, directory: Optional[Path] = None) -> Path:
         )
         if result.returncode == 0 and target.exists():
             return target
+        diag.log(f"powershell could not write the .lnk: {result.stderr.strip()[:300]}")
     except (OSError, subprocess.SubprocessError):
-        pass
+        diag.log_exception("powershell failed while writing the shortcut")
     return _create_cmd(layout_name, directory, command)
 
 
 def _create_cmd(layout_name: str, directory: Path, command: Command) -> Path:
-    target = directory / f"{slugify(layout_name)}.cmd"
+    """Fallback when PowerShell is unavailable.
+
+    cmd.exe reads a batch file in the console code page, so an Arabic layout
+    name only survives if the file switches to UTF-8 first and carries no BOM
+    (the BOM itself would be executed as a command).
+    """
+    target = directory / f"{safe_filename(layout_name)}.cmd"
     target.write_text(
         "@echo off\r\n"
+        "chcp 65001 >nul\r\n"
         f'start "" "{command.target}" {command.arguments}\r\n',
-        encoding="utf-8-sig",
+        encoding="utf-8",
     )
+    diag.log(f"shortcut fell back to a .cmd: {target}")
     return target
+
+
+def reveal(path: Path) -> None:
+    """Open Explorer with the file selected, so it is never 'where is it?'."""
+    if sys.platform != "win32":
+        return
+    try:
+        subprocess.Popen(["explorer.exe", "/select,", str(path)],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    except OSError:
+        diag.log_exception("could not open Explorer on the shortcut")

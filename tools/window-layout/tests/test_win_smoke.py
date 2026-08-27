@@ -146,5 +146,44 @@ class TestMovesARealWindow(unittest.TestCase):
         self.assertAlmostEqual(back.rect.left, target.left, delta=2)
 
 
+@unittest.skipUnless(sys.platform == "win32", "يشتغل على ويندوز بس")
+class TestShortcutsOnWindows(unittest.TestCase):
+    """The ctypes/COM plumbing behind 'where is the desktop', and whether
+    PowerShell really writes a shell link."""
+
+    def test_the_shell_knows_where_the_desktop_is(self):
+        from winlayout.shortcuts import desktop_from_known_folder
+        found = desktop_from_known_folder()
+        self.assertIsNotNone(found, "SHGetKnownFolderPath مرجعش حاجة")
+        self.assertTrue(found.is_dir())
+
+    def test_the_registry_agrees_with_the_shell(self):
+        from winlayout.shortcuts import (desktop_from_known_folder,
+                                         desktop_from_registry)
+        shell, registry = desktop_from_known_folder(), desktop_from_registry()
+        if registry is None:
+            self.skipTest("مافيش قيمة في الريجستري")
+        self.assertEqual(Path(str(shell)).resolve(), registry.resolve())
+
+    def test_desktop_dir_always_answers(self):
+        from winlayout.shortcuts import desktop_dir
+        self.assertTrue(desktop_dir().is_dir())
+
+    def test_a_real_shell_link_is_written(self):
+        from winlayout.shortcuts import create_shortcut
+        with tempfile.TemporaryDirectory() as tmp:
+            path = create_shortcut("شغل الصبح", Path(tmp))
+            self.assertTrue(path.exists(), "الاختصار مااتكتبش")
+            if path.suffix == ".cmd":
+                self.skipTest("PowerShell مش متاح على الرَنر")
+            self.assertEqual(path.name, "شغل الصبح.lnk")
+            raw = path.read_bytes()
+        # A .lnk starts with its 76-byte header and the shell link CLSID.
+        self.assertEqual(raw[:4], b"\x4c\x00\x00\x00")
+        self.assertEqual(
+            raw[4:20],
+            b"\x01\x14\x02\x00\x00\x00\x00\x00\xc0\x00\x00\x00\x00\x00\x00\x46")
+
+
 if __name__ == "__main__":
     unittest.main()
