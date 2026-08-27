@@ -6,7 +6,7 @@ exe itself; from source it is ``pythonw.exe winlayout-cli.py``.
 """
 from __future__ import annotations
 
-import base64
+import ctypes
 import os
 import re
 import subprocess
@@ -17,13 +17,11 @@ from typing import NamedTuple, Optional
 from . import diag
 from .model import slugify
 
-CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
-
-
 class Command(NamedTuple):
     target: str
     arguments: str
-    icon: str
+    icon_path: str
+    icon_index: int
     workdir: str
 
 
@@ -131,9 +129,9 @@ def safe_filename(name: str) -> str:
     return cleaned[:80] or slugify(name)
 
 
-def _fallback_icon() -> str:
+def _fallback_icon() -> tuple:
     system_root = os.environ.get("SystemRoot") or "C:\\Windows"
-    return os.path.join(system_root, "System32", "imageres.dll") + ",110"
+    return os.path.join(system_root, "System32", "imageres.dll"), 110
 
 
 def shortcut_command(layout_name: str, frozen: Optional[bool] = None,
@@ -145,84 +143,147 @@ def shortcut_command(layout_name: str, frozen: Optional[bool] = None,
     root = Path(root) if root is not None else package_root()
     if frozen:
         exe = executable or sys.executable
-        return Command(exe, f'restore "{layout_name}"', f"{exe},0", str(root))
+        return Command(exe, f'restore "{layout_name}"', exe, 0, str(root))
     launcher = root / "WindowLayout.pyw"
     icon = root / "winlayout" / "ui" / "icon.ico"
+    icon_path, icon_index = ((str(icon), 0) if icon.exists() else _fallback_icon())
     return Command(
         executable or pythonw(),
         f'"{launcher}" restore "{layout_name}"',
-        str(icon) if icon.exists() else _fallback_icon(),
+        icon_path, icon_index,
         str(root),
     )
 
 
-def _ps_quote(value) -> str:
-    return "'" + str(value).replace("'", "''") + "'"
 
 
-def build_script(target: Path, command: Command, layout_name: str) -> str:
-    return (
-        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut({path});"
-        "$s.TargetPath = {exe};"
-        "$s.Arguments = {args};"
-        "$s.WorkingDirectory = {cwd};"
-        "$s.IconLocation = {icon};"
-        "$s.Description = {desc};"
-        "$s.Save()"
-    ).format(
-        path=_ps_quote(target),
-        exe=_ps_quote(command.target),
-        args=_ps_quote(command.arguments),
-        cwd=_ps_quote(command.workdir),
-        icon=_ps_quote(command.icon),
-        desc=_ps_quote(f"WindowLayout — {layout_name}"),
-    )
+# COM plumbing for IShellLink. WScript.Shell -- the one line of PowerShell
+# everybody uses for this -- converts the shortcut path to the system's ANSI
+# code page before saving, so on a machine whose "language for non-Unicode
+# programs" is not Arabic, an Arabic layout name becomes "??? ?????.lnk" and
+# the save fails outright. IShellLink and IPersistFile take wide strings the
+# whole way, and calling them here also drops a one-to-two second PowerShell
+# start-up from every shortcut.
+CLSID_SHELL_LINK = "{00021401-0000-0000-C000-000000000046}"
+IID_ISHELL_LINK_W = "{000214F9-0000-0000-C000-000000000046}"
+IID_IPERSIST_FILE = "{0000010B-0000-0000-C000-000000000046}"
+CLSCTX_INPROC_SERVER = 1
+COINIT_APARTMENTTHREADED = 0x2
+
+# Vtable slots, counting the three IUnknown entries first.
+IUNKNOWN_QUERY_INTERFACE = 0
+IUNKNOWN_RELEASE = 2
+ISL_SET_DESCRIPTION = 7
+ISL_SET_WORKING_DIRECTORY = 9
+ISL_SET_ARGUMENTS = 11
+ISL_SET_ICON_LOCATION = 17
+ISL_SET_PATH = 20
+IPF_SAVE = 6
 
 
-def encode_script(script: str) -> str:
-    """What -EncodedCommand wants: base64 of UTF-16LE."""
-    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+class GUID(ctypes.Structure):
+    """Defined here rather than inside a function so it can be an argtype:
+    passing byref() against an explicit POINTER(GUID) is unambiguous, while
+    passing it against a bare c_void_p relies on ctypes' conversion rules."""
+
+    # Fixed widths, not c_ulong/c_ushort: c_ulong is 8 bytes on 64-bit Linux
+    # and 4 on Windows, and a GUID has to be exactly 16 bytes.
+    _fields_ = [("Data1", ctypes.c_uint32), ("Data2", ctypes.c_uint16),
+                ("Data3", ctypes.c_uint16), ("Data4", ctypes.c_ubyte * 8)]
+
+
+def _guid(text: str) -> GUID:
+    value = GUID()
+    ole32 = ctypes.WinDLL("ole32")
+    ole32.CLSIDFromString.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(GUID)]
+    ole32.CLSIDFromString.restype = ctypes.c_long
+    if ole32.CLSIDFromString(text, ctypes.byref(value)) != 0:
+        raise OSError(f"bad guid {text}")
+    return value
+
+
+def _com_call(pointer, slot, argtypes, *args):
+    """Invoke one vtable entry. HRESULT as the restype makes ctypes raise on
+    a failing call, so every step is checked."""
+    vtable = ctypes.cast(pointer, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+    prototype = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, *argtypes)
+    return prototype(vtable[slot])(pointer, *args)
+
+
+def _release(pointer) -> None:
+    vtable = ctypes.cast(pointer, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+    ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(
+        vtable[IUNKNOWN_RELEASE])(pointer)
+
+
+def write_shell_link(path: Path, command: Command) -> Optional[str]:
+    """Create the .lnk. Returns an error message, or None on success."""
+    if sys.platform != "win32":
+        return "الاختصارات على ويندوز بس"
+
+    ole32 = ctypes.WinDLL("ole32")
+    ole32.CoCreateInstance.argtypes = [
+        ctypes.POINTER(GUID), ctypes.c_void_p, ctypes.c_ulong,
+        ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)]
+    ole32.CoCreateInstance.restype = ctypes.HRESULT
+
+    started = ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+    ours = started in (0, 1)  # S_OK / S_FALSE: only then is the balance ours
+    link = ctypes.c_void_p()
+    try:
+        ole32.CoCreateInstance(
+            ctypes.byref(_guid(CLSID_SHELL_LINK)), None, CLSCTX_INPROC_SERVER,
+            ctypes.byref(_guid(IID_ISHELL_LINK_W)), ctypes.byref(link))
+    except OSError as exc:
+        if ours:
+            ole32.CoUninitialize()
+        return f"مانفعش نجهّز الاختصار: {exc}"
+
+    text = [ctypes.c_wchar_p]
+    try:
+        _com_call(link, ISL_SET_PATH, text, command.target)
+        if command.arguments:
+            _com_call(link, ISL_SET_ARGUMENTS, text, command.arguments)
+        if command.workdir:
+            _com_call(link, ISL_SET_WORKING_DIRECTORY, text, command.workdir)
+        _com_call(link, ISL_SET_DESCRIPTION, text, f"WindowLayout — {path.stem}")
+        if command.icon_path:
+            _com_call(link, ISL_SET_ICON_LOCATION,
+                      [ctypes.c_wchar_p, ctypes.c_int],
+                      command.icon_path, int(command.icon_index))
+
+        persist = ctypes.c_void_p()
+        _com_call(link, IUNKNOWN_QUERY_INTERFACE,
+                  [ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)],
+                  ctypes.byref(_guid(IID_IPERSIST_FILE)), ctypes.byref(persist))
+        try:
+            _com_call(persist, IPF_SAVE, [ctypes.c_wchar_p, ctypes.c_int],
+                      str(path), 1)
+        finally:
+            _release(persist)
+    except OSError as exc:
+        return f"مانفعش نحفظ الاختصار: {exc}"
+    finally:
+        _release(link)
+        if ours:
+            ole32.CoUninitialize()
+
+    return None if path.exists() else "الاختصار مااتكتبش"
 
 
 def create_shortcut(layout_name: str, directory: Optional[Path] = None) -> Path:
-    """Write ``<layout>.lnk`` on the desktop. Falls back to a .cmd file when
-    PowerShell is unavailable."""
+    """Write ``<layout>.lnk`` on the desktop. Falls back to a .cmd file only
+    if the shell refuses to make a link at all."""
     directory = Path(directory) if directory else desktop_dir()
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"{safe_filename(layout_name)}.lnk"
     command = shortcut_command(layout_name)
     diag.log(f"shortcut -> {target}")
 
-    script = build_script(target, command, layout_name)
-    # -EncodedCommand, not -Command: PowerShell re-encodes a command line
-    # through the console code page, which turns every Arabic letter into
-    # '?' -- and '?' is illegal in a filename, so the save fails. Base64 of
-    # UTF-16LE is pure ASCII on the command line and arrives intact.
-    encoded = encode_script(script)
-
-    # Windows PowerShell ships with Windows; pwsh is there on developer
-    # machines and build agents. Either can write the shell link.
-    for shell in ("powershell.exe", "pwsh.exe"):
-        try:
-            result = subprocess.run(
-                [shell, "-NoProfile", "-NonInteractive",
-                 "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
-                capture_output=True, text=True, timeout=60,
-                encoding="utf-8", errors="replace",
-                creationflags=CREATE_NO_WINDOW,
-            )
-        except FileNotFoundError:
-            diag.log(f"{shell} is not on PATH")
-            continue
-        except (OSError, subprocess.SubprocessError) as exc:
-            diag.log(f"{shell} failed: {exc!r}")
-            continue
-        if result.returncode == 0 and target.exists():
-            return target
-        diag.log(f"{shell} exit={result.returncode} "
-                 f"exists={target.exists()} "
-                 f"stderr={(result.stderr or '').strip()[:400]!r} "
-                 f"stdout={(result.stdout or '').strip()[:200]!r}")
+    error = write_shell_link(target, command)
+    if error is None:
+        return target
+    diag.log(f"shell link failed: {error}")
     return _create_cmd(layout_name, directory, command)
 
 

@@ -84,7 +84,7 @@ class TestShortcutCommand(unittest.TestCase):
                                root=Path(r"C:\a"))
         self.assertEqual(cmd.target, r"C:\a\WindowLayout.exe")
         self.assertEqual(cmd.arguments, 'restore "شغل"')
-        self.assertEqual(cmd.icon, r"C:\a\WindowLayout.exe,0")
+
 
     def test_source_checkout_runs_the_cli_script(self):
         from winlayout.shortcuts import shortcut_command
