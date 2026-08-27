@@ -11,6 +11,10 @@ from .model import (Layout, MonitorInfo, Rect, STATE_MINIMIZED, STATE_NORMAL,
 
 Progress = Callable[[str], None]
 
+LAUNCH_STAGGER = 1.2     # seconds between two windows of the same app
+POLL_INTERVAL = 0.5      # how often to look for windows that just opened
+MIN_LAUNCH_WAIT = 3.0    # never give an app less than this to show a window
+
 STATUS_MOVED = "moved"
 STATUS_LAUNCHED = "launched"
 STATUS_MISSING = "missing"
@@ -165,34 +169,50 @@ class Engine:
     def _launch_missing(self, layout: Layout, missing: list[WindowInfo],
                         matches: dict[str, WindowInfo], used: set[int],
                         say: Progress, report: RestoreReport) -> None:
+        """Start everything that is closed, then wait for the windows together.
+
+        Waiting per app in turn would add up: five slow apps at twenty seconds
+        each is a minute and a half of staring at a half-built desktop. Apps
+        boot in parallel anyway, so start them all and collect what appears.
+        """
+        pending: list[WindowInfo] = []
         for _key, specs in matching.group_for_launch(missing):
-            for spec in specs:
+            for index, spec in enumerate(specs):
                 say(f"بنفتح {spec.app}…")
                 error = self.backend.launch(spec)
                 if error:
                     report.warnings.append(f"{spec.app}: {error}")
                     continue
-                found = self._wait_for_window(spec, used, layout.launch_timeout, say)
-                if found is not None:
-                    setattr(found, "_launched", True)
-                    matches[spec.id] = found
-                    used.add(found.hwnd)
+                pending.append(spec)
+                if index + 1 < len(specs):
+                    # A second window of the same app: give the first one a
+                    # moment, or the app treats both as one launch.
+                    time.sleep(LAUNCH_STAGGER)
+        if pending:
+            self._collect_launched(pending, matches, used, layout.launch_timeout, say)
 
-    def _wait_for_window(self, spec: WindowInfo, used: set[int],
-                         timeout: float, say: Progress) -> Optional[WindowInfo]:
-        """Wait for a window of the app we just started to show up."""
-        deadline = time.time() + max(2.0, timeout)
-        while time.time() < deadline:
-            time.sleep(0.4)
+    def _collect_launched(self, pending: list[WindowInfo],
+                          matches: dict[str, WindowInfo], used: set[int],
+                          timeout: float, say: Progress) -> None:
+        waiting = list(pending)
+        deadline = time.time() + max(MIN_LAUNCH_WAIT, timeout)
+        while waiting and time.time() < deadline:
+            time.sleep(POLL_INTERVAL)
             for win in self.backend.windows(with_cmdlines=False):
-                if win.hwnd in used:
+                if win.hwnd in used or not waiting:
                     continue
-                if spec.aumid and win.aumid == spec.aumid:
-                    return win
-                if matching.same_exe(spec.exe_name, win.exe_name):
-                    return win
-        say(f"{spec.app} ماردّش خلال {int(timeout)} ثانية")
-        return None
+                owners = [spec for spec in waiting if same_app(spec, win)]
+                if not owners:
+                    continue
+                # Two windows of one app: give each to the spec whose title it
+                # looks most like, instead of whichever opened first.
+                spec = max(owners, key=lambda s: matching.title_score(s.title, win.title))
+                setattr(win, "_launched", True)
+                matches[spec.id] = win
+                used.add(win.hwnd)
+                waiting.remove(spec)
+        for spec in waiting:
+            say(f"{spec.app} ماردّش خلال {int(timeout)} ثانية")
 
     def _restore_focus(self, layout: Layout, matches: dict[str, WindowInfo]) -> None:
         for spec in layout.windows:
@@ -201,6 +221,13 @@ class Engine:
                 if win is not None:
                     self.backend.focus(win)
                 return
+
+
+def same_app(spec: WindowInfo, win: WindowInfo) -> bool:
+    """Whether a window that just appeared belongs to the app we started."""
+    if spec.aumid and win.aumid:
+        return spec.aumid == win.aumid
+    return matching.same_exe(spec.exe_name, win.exe_name)
 
 
 def _freeze(win: WindowInfo) -> WindowInfo:

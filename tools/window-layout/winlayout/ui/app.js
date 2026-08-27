@@ -120,6 +120,21 @@ function card(layout) {
     } catch (err) { banner(err.message, "error"); }
   };
 
+  const launchBox = Object.assign(document.createElement("input"),
+    { type: "checkbox", checked: layout.launch_missing });
+  launchBox.onchange = async () => {
+    try {
+      await api("options", { method: "POST",
+        body: { name: layout.name, launch_missing: launchBox.checked } });
+    } catch (err) {
+      launchBox.checked = !launchBox.checked;
+      banner(err.message, "error");
+    }
+  };
+  const launch = el("label", { className: "check inline", title:
+      "وقت الاسترجاع، أي برنامج في التوزيع ده يكون مقفول هيتفتح ويتحط مكانه" },
+    launchBox, el("span", { textContent: "افتح البرامج المقفولة" }));
+
   return el("article", { className: "card" },
     el("header", {},
       el("div", {},
@@ -129,6 +144,7 @@ function card(layout) {
           + ` · اتحدّث ${fmtDate(layout.updated_at)}` }))),
     drawMap(layout),
     appChips(layout),
+    launch,
     el("div", { className: "actions" }, restore, update, shortcut),
     el("div", { className: "actions" }, rename, remove),
   );

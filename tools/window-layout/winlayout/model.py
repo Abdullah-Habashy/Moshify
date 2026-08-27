@@ -202,7 +202,7 @@ class Layout:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     launch_missing: bool = True
-    launch_timeout: float = 20.0
+    launch_timeout: float = 30.0
     restore_focus: bool = True
     schema_version: int = SCHEMA_VERSION
 
@@ -228,7 +228,7 @@ class Layout:
             created_at=float(data.get("created_at", time.time())),
             updated_at=float(data.get("updated_at", time.time())),
             launch_missing=bool(data.get("launch_missing", True)),
-            launch_timeout=float(data.get("launch_timeout", 20.0)),
+            launch_timeout=float(data.get("launch_timeout", 30.0)),
             restore_focus=bool(data.get("restore_focus", True)),
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
         )

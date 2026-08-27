@@ -125,6 +125,7 @@ input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 1px; 
 .check { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; }
 .check:hover { background: var(--bg); }
 .check.inline { margin: 12px 0 4px; }
+.card .check.inline { margin: 0; padding: 6px 8px; font-size: 13px; }
 .check input { margin-top: 4px; width: 16px; height: 16px; accent-color: var(--accent); }
 .check .name { font-weight: 600; }
 .check .meta { font-size: 12px; color: var(--muted); display: block; overflow-wrap: anywhere; }

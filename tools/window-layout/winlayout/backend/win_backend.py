@@ -21,6 +21,7 @@ import time
 from ctypes import wintypes
 from typing import Optional
 
+from .. import applaunch, diag
 from ..model import (MonitorInfo, Rect, STATE_MAXIMIZED, STATE_MINIMIZED,
                      STATE_NORMAL, WindowInfo)
 
@@ -566,16 +567,40 @@ class WindowsBackend:
             pass
 
     # -- launching ------------------------------------------------------------
+    @staticmethod
+    def start_menu_roots() -> list:
+        from pathlib import Path
+        roots = []
+        for variable in ("APPDATA", "PROGRAMDATA"):
+            base = os.environ.get(variable)
+            if base:
+                roots.append(Path(base) / "Microsoft" / "Windows" / "Start Menu" / "Programs")
+        return roots
+
     def launch(self, spec: WindowInfo) -> Optional[str]:
         if spec.aumid:
+            diag.log(f"launch store app {spec.aumid}")
             return self._spawn(["explorer.exe", f"shell:AppsFolder\\{spec.aumid}"], None)
         if not spec.exe:
             return "مش عارفين البرنامج اللي بيفتح النافذة دي"
-        if not os.path.exists(spec.exe):
+
+        target = applaunch.resolve(spec.exe, self.start_menu_roots())
+        if target is None:
+            diag.log(f"launch failed, path gone: {spec.exe}")
             return f"الملف مش موجود: {spec.exe}"
-        workdir = os.path.dirname(spec.exe) or None
-        command = self._launch_command(spec)
-        return self._spawn(command, workdir)
+
+        if target.suffix.lower() == ".lnk":
+            # A Start menu shortcut has to go through the shell, not CreateProcess.
+            diag.log(f"launch via shortcut {target}")
+            return self._spawn(["explorer.exe", str(target)], None)
+
+        moved = str(target).lower() != spec.exe.lower()
+        if moved:
+            diag.log(f"launch {spec.exe} -> moved to {target}")
+        # A recorded command line belongs to the recorded path only.
+        command = [str(target)] if moved else self._launch_command(spec)
+        diag.log(f"launch {command if isinstance(command, list) else command}")
+        return self._spawn(command, str(target.parent) or None)
 
     @staticmethod
     def _launch_command(spec: WindowInfo):

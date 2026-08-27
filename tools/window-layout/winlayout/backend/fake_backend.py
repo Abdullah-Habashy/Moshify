@@ -45,6 +45,10 @@ class FakeBackend:
         self._windows = _demo_windows()
         self.applied: list[tuple[str, Rect, str]] = []
         self.launched: list[str] = []
+        # test hooks: what a launch does
+        self.launch_errors: dict[str, str] = {}   # exe name -> error message
+        self.launch_titles: dict[str, list[str]] = {}  # exe name -> titles to hand out
+        self.launch_opens_nothing: set[str] = set()
 
     def monitors(self) -> list[MonitorInfo]:
         return list(self._monitors)
@@ -72,9 +76,16 @@ class FakeBackend:
             self._windows.insert(0, win)
 
     def launch(self, spec: WindowInfo) -> Optional[str]:
-        self.launched.append(spec.exe_name or spec.aumid or spec.cls)
+        key = spec.exe_name or spec.aumid or spec.cls
+        if key in self.launch_errors:
+            return self.launch_errors[key]
+        self.launched.append(key)
+        if key in self.launch_opens_nothing:
+            return None
+        titles = self.launch_titles.get(key)
+        title = titles.pop(0) if titles else spec.title
         clone = WindowInfo(
-            title=spec.title, cls=spec.cls, exe=spec.exe, exe_name=spec.exe_name,
+            title=title, cls=spec.cls, exe=spec.exe, exe_name=spec.exe_name,
             aumid=spec.aumid, rect=Rect(50, 50, 850, 650),
             normal_rect=Rect(50, 50, 850, 650), state=STATE_NORMAL,
             monitor=self._monitors[0].device, hwnd=next(_ids), pid=next(_ids),
