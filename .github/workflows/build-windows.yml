@@ -39,18 +39,25 @@ jobs:
       - name: Build the exe
         run: python -m PyInstaller build/WindowLayout.spec --noconfirm --clean
 
-      - name: Check the exe starts
+      - name: Check the executables run
         shell: pwsh
         run: |
-          .\dist\WindowLayout.exe list
-          if ($LASTEXITCODE -ne 0) { throw "WindowLayout.exe list exited $LASTEXITCODE" }
-          $size = (Get-Item .\dist\WindowLayout.exe).Length
-          Write-Host "WindowLayout.exe = $([math]::Round($size/1MB,1)) MB"
+          # The windowed exe returns to the shell immediately and never sets an
+          # exit code, so the console build is the one a script can check.
+          $cli = Start-Process -FilePath .\dist\winlayout-cli.exe -ArgumentList 'list' `
+            -Wait -PassThru -NoNewWindow
+          if ($cli.ExitCode -ne 0) { throw "winlayout-cli.exe list exited $($cli.ExitCode)" }
+          $app = Start-Process -FilePath .\dist\WindowLayout.exe -ArgumentList 'list' `
+            -Wait -PassThru
+          if ($app.ExitCode -ne 0) { throw "WindowLayout.exe list exited $($app.ExitCode)" }
+          Get-ChildItem .\dist\*.exe | ForEach-Object {
+            Write-Host "$($_.Name) = $([math]::Round($_.Length/1MB,1)) MB"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
           name: WindowLayout-exe
-          path: tools/window-layout/dist/WindowLayout.exe
+          path: tools/window-layout/dist/*.exe
           if-no-files-found: error
 
       - name: Publish a downloadable build
@@ -59,8 +66,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "winlayout-v1.0.0-b${{ github.run_number }}"
-          gh release create $tag dist/WindowLayout.exe `
+          gh release create $tag dist/WindowLayout.exe dist/winlayout-cli.exe `
             --target ${{ github.sha }} `
             --title "WindowLayout 1.0.0 (build ${{ github.run_number }})" `
-            --notes "نزّل WindowLayout.exe ودوس عليه دبل كليك. مش محتاج بايثون ولا تسطيب." `
+            --notes-file build/release-notes.md `
             --prerelease

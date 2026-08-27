@@ -171,7 +171,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):
-        args = parser.parse_args(["ui"])
+        parser.print_help()
+        return 0
 
     store = LayoutStore()
     engine = None
